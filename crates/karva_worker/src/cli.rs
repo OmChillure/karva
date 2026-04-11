@@ -138,9 +138,12 @@ fn run(f: impl FnOnce(Vec<OsString>) -> Vec<OsString>) -> anyhow::Result<ExitSta
 
     let name_filter = NameFilterSet::new(&args.sub_command.name_patterns)?;
 
-    let mut settings = args.sub_command.into_options().to_settings();
+    let mut settings = args.sub_command.clone().into_options().to_settings();
     settings.set_tag_filter(tag_filter);
     settings.set_name_filter(name_filter);
+    if let Some(mode) = args.sub_command.run_ignored {
+        settings.set_run_ignored(mode.into());
+    }
 
     let run_hash = RunHash::from_existing(&args.run_hash);
 

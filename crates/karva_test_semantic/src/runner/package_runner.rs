@@ -5,6 +5,7 @@ use std::sync::Arc;
 type FixtureArguments = HashMap<String, Py<PyAny>>;
 
 use karva_diagnostic::IndividualTestResultKind;
+use karva_metadata::RunIgnoredMode;
 use karva_python_semantic::{FunctionKind, QualifiedFunctionName, QualifiedTestName};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator};
@@ -205,12 +206,26 @@ impl<'ctx, 'a> PackageRunner<'ctx, 'a> {
             }
         }
 
-        if let (true, reason) = tags.should_skip() {
-            return Some(self.context.register_test_case_result(
-                &QualifiedTestName::new(name.clone(), None),
-                IndividualTestResultKind::Skipped { reason },
-                std::time::Duration::ZERO,
-            ));
+        match self.context.settings().test().run_ignored {
+            None => {
+                if let (true, reason) = tags.should_skip() {
+                    return Some(self.context.register_test_case_result(
+                        &QualifiedTestName::new(name.clone(), None),
+                        IndividualTestResultKind::Skipped { reason },
+                        std::time::Duration::ZERO,
+                    ));
+                }
+            }
+            Some(RunIgnoredMode::All) => {}
+            Some(RunIgnoredMode::Only) => {
+                if !tags.has_skip_tag() {
+                    return Some(self.context.register_test_case_result(
+                        &QualifiedTestName::new(name.clone(), None),
+                        IndividualTestResultKind::Skipped { reason: None },
+                        std::time::Duration::ZERO,
+                    ));
+                }
+            }
         }
 
         None

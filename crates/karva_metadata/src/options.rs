@@ -204,6 +204,7 @@ impl TestOptions {
             retry: self.retry.unwrap_or_default(),
             tag_filter: TagFilterSet::default(),
             name_filter: NameFilterSet::default(),
+            run_ignored: None,
         }
     }
 }
@@ -265,6 +266,13 @@ impl Combine for OutputFormat {
     fn combine(self, _other: Self) -> Self {
         self
     }
+}
+
+/// Controls whether tests decorated with a skip tag are run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunIgnoredMode {
+    All,
+    Only,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]

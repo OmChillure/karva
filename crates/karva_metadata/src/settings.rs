@@ -1,5 +1,5 @@
 use crate::filter::{NameFilterSet, TagFilterSet};
-use crate::options::OutputFormat;
+use crate::options::{OutputFormat, RunIgnoredMode};
 
 #[derive(Default, Debug, Clone)]
 pub struct ProjectSettings {
@@ -32,6 +32,10 @@ impl ProjectSettings {
     pub fn set_name_filter(&mut self, name_filter: NameFilterSet) {
         self.test.name_filter = name_filter;
     }
+
+    pub fn set_run_ignored(&mut self, mode: RunIgnoredMode) {
+        self.test.run_ignored = Some(mode);
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -54,4 +58,5 @@ pub struct TestSettings {
     pub retry: u32,
     pub tag_filter: TagFilterSet,
     pub name_filter: NameFilterSet,
+    pub run_ignored: Option<RunIgnoredMode>,
 }

@@ -66,7 +66,14 @@ karva test [OPTIONS] [PATH]...
 <li><code>concise</code>:  Print diagnostics concisely, one per line</li>
 </ul></dd><dt id="karva-test--quiet"><a href="#karva-test--quiet"><code>--quiet</code></a>, <code>-q</code></dt><dd><p>Use quiet output (or <code>-qq</code> for silent output)</p>
 </dd><dt id="karva-test--retry"><a href="#karva-test--retry"><code>--retry</code></a> <i>retry</i></dt><dd><p>When set, the test will retry failed tests up to this number of times</p>
-</dd><dt id="karva-test--snapshot-update"><a href="#karva-test--snapshot-update"><code>--snapshot-update</code></a></dt><dd><p>Update snapshots directly instead of creating pending <code>.snap.new</code> files.</p>
+</dd><dt id="karva-test--run-ignored"><a href="#karva-test--run-ignored"><code>--run-ignored</code></a> <i>mode</i></dt><dd><p>Control whether tests marked with <code>@karva.tags.skip</code> (or <code>@pytest.mark.skip</code>) are run.</p>
+<p><code>--run-ignored all</code>  — run skipped tests alongside normal tests. <code>--run-ignored only</code> — run only the skipped tests.</p>
+<p>When the flag is passed without a value, <code>all</code> is assumed.</p>
+<p>Possible values:</p>
+<ul>
+<li><code>all</code></li>
+<li><code>only</code></li>
+</ul></dd><dt id="karva-test--snapshot-update"><a href="#karva-test--snapshot-update"><code>--snapshot-update</code></a></dt><dd><p>Update snapshots directly instead of creating pending <code>.snap.new</code> files.</p>
 <p>When set, <code>karva.assert_snapshot()</code> will write directly to <code>.snap</code> files, accepting any changes automatically.</p>
 </dd><dt id="karva-test--tag"><a href="#karva-test--tag"><code>--tag</code></a>, <code>-t</code> <i>tag-expressions</i></dt><dd><p>Filter tests by tag expression. Only tests with matching custom tags will run.</p>
 <p>Expressions support <code>and</code>, <code>or</code>, <code>not</code>, and parentheses for grouping. When specified multiple times, a test runs if it matches any of the expressions.</p>

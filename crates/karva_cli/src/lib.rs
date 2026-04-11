@@ -150,6 +150,15 @@ pub enum CacheAction {
     Clean,
 }
 
+/// Controls whether tests decorated with a skip tag are run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum RunIgnoredMode {
+    #[value(name = "all")]
+    All,
+    #[value(name = "only")]
+    Only,
+}
+
 /// Shared test execution options that can be used by both main CLI and worker processes
 #[derive(Debug, Parser, Clone, Default)]
 pub struct SubTestCommand {
@@ -217,6 +226,15 @@ pub struct SubTestCommand {
     /// Examples: `-m auth`, `-m '^test::test_login'`, `-m 'slow|fast'`.
     #[clap(short = 'm', long = "match")]
     pub name_patterns: Vec<String>,
+
+    /// Control whether tests marked with `@karva.tags.skip` (or `@pytest.mark.skip`) are run.
+    ///
+    /// `--run-ignored all`  — run skipped tests alongside normal tests.
+    /// `--run-ignored only` — run only the skipped tests.
+    ///
+    /// When the flag is passed without a value, `all` is assumed.
+    #[clap(long = "run-ignored", value_name = "MODE", default_missing_value = "all", num_args = 0..=1)]
+    pub run_ignored: Option<RunIgnoredMode>,
 
     /// Update snapshots directly instead of creating pending `.snap.new` files.
     ///
@@ -330,5 +348,23 @@ impl SubTestCommand {
 impl TestCommand {
     pub fn into_options(self) -> Options {
         self.sub_command.into_options()
+    }
+}
+
+impl RunIgnoredMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Only => "only",
+        }
+    }
+}
+
+impl From<RunIgnoredMode> for karva_metadata::RunIgnoredMode {
+    fn from(value: RunIgnoredMode) -> Self {
+        match value {
+            RunIgnoredMode::All => Self::All,
+            RunIgnoredMode::Only => Self::Only,
+        }
     }
 }

@@ -9,7 +9,8 @@ mod pyproject;
 mod settings;
 
 pub use options::{
-    Options, OutputFormat, ProjectOptionsOverrides, SrcOptions, TerminalOptions, TestOptions,
+    Options, OutputFormat, ProjectOptionsOverrides, RunIgnoredMode, SrcOptions, TerminalOptions,
+    TestOptions,
 };
 pub use pyproject::{PyProject, PyProjectError};
 pub use settings::ProjectSettings;
