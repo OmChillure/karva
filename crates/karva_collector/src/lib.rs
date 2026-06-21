@@ -1,6 +1,5 @@
 use camino::{Utf8Path, Utf8PathBuf};
-use fs_err as fs;
-use ruff_python_ast::{PythonVersion, Stmt};
+use ruff_python_ast::{PythonVersion, Stmt, StmtFunctionDef};
 use ruff_python_parser::{Mode, ParseOptions, parse_unchecked};
 use thiserror::Error;
 
@@ -31,6 +30,8 @@ pub struct CollectionSettings<'a> {
     pub respect_ignore_files: bool,
     /// Whether to collect fixture function definitions in addition to test functions.
     pub collect_fixtures: bool,
+    /// Whether collected modules need to retain their full source text.
+    pub retain_source_text: bool,
 }
 
 /// Collects test functions and fixtures from a Python file.
@@ -48,10 +49,11 @@ pub fn collect_file(
         return Ok(None);
     };
 
-    let source_text = fs::read_to_string(path).map_err(|source| CollectionError::ReadSource {
-        path: path.clone(),
-        source,
-    })?;
+    let source_text =
+        std::fs::read_to_string(path).map_err(|source| CollectionError::ReadSource {
+            path: path.clone(),
+            source,
+        })?;
 
     let module_type: ModuleType = path.into();
 
@@ -63,7 +65,12 @@ pub fn collect_file(
         return Ok(None);
     };
 
-    let mut collected_module = CollectedModule::new(module_path, module_type, source_text);
+    let module_source_text = if settings.retain_source_text {
+        source_text
+    } else {
+        String::new()
+    };
+    let mut collected_module = CollectedModule::new(module_path, module_type, module_source_text);
 
     for stmt in parsed.into_syntax().body {
         if let Stmt::FunctionDef(function_def) = stmt {
@@ -77,7 +84,8 @@ pub fn collect_file(
                 function_names,
                 settings.test_function_prefix,
             ) {
-                collected_module.add_test_function_def(function_def);
+                collected_module
+                    .add_test_function_def(collected_test_function_def(function_def, settings));
             }
         }
     }
@@ -98,6 +106,21 @@ fn is_test_function_to_collect(name: &str, explicit_names: &[String], prefix: &s
     }
 }
 
+fn collected_test_function_def(
+    mut function_def: StmtFunctionDef,
+    settings: &CollectionSettings,
+) -> StmtFunctionDef {
+    if !settings.retain_source_text && !settings.collect_fixtures {
+        function_def.decorator_list.clear();
+        function_def.type_params = None;
+        function_def.parameters = Box::default();
+        function_def.returns = None;
+        function_def.body.clear();
+    }
+
+    function_def
+}
+
 #[cfg(test)]
 mod tests {
     use ruff_python_ast::PythonVersion;
@@ -110,6 +133,7 @@ mod tests {
             test_function_prefix: "test_",
             respect_ignore_files: true,
             collect_fixtures: false,
+            retain_source_text: true,
         }
     }
 
@@ -126,5 +150,34 @@ mod tests {
             error,
             CollectionError::ReadSource { path: error_path, .. } if error_path == path
         ));
+    }
+
+    #[test]
+    fn collect_file_can_drop_source_text() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let cwd = Utf8Path::from_path(temp_dir.path()).expect("temp dir should be UTF-8");
+        let path = cwd.join("test_sample.py");
+        std::fs::write(
+            &path,
+            "def test_sample(value: int = 1) -> int:\n    x = value + 1\n    return x\n",
+        )
+        .expect("write test file");
+
+        let settings = CollectionSettings {
+            retain_source_text: false,
+            ..settings()
+        };
+
+        let module = collect_file(&path, cwd, &settings, &[])
+            .expect("collection should succeed")
+            .expect("module should be collected");
+
+        assert!(module.source_text.is_empty());
+        assert_eq!(module.test_function_defs.len(), 1);
+
+        let function_def = &module.test_function_defs[0];
+        assert!(function_def.body.is_empty());
+        assert_eq!(function_def.parameters.len(), 0);
+        assert!(function_def.returns.is_none());
     }
 }

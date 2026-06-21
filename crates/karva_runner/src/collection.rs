@@ -1,5 +1,5 @@
 use karva_collector::{
-    CollectedModule, CollectedPackage, CollectionSettings, ModuleType, collect_file,
+    CollectedModule, CollectedPackage, CollectionError, CollectionSettings, collect_file,
 };
 
 use std::thread;
@@ -22,7 +22,7 @@ pub struct ParallelCollector<'a> {
 
 enum CollectionMessage {
     Module(CollectedModule),
-    Error(anyhow::Error),
+    Error(CollectionError),
 }
 
 impl<'a> ParallelCollector<'a> {
@@ -44,14 +44,7 @@ impl<'a> ParallelCollector<'a> {
             for message in rx {
                 match message {
                     CollectionMessage::Module(collected_module) => {
-                        match collected_module.module_type() {
-                            ModuleType::Test => {
-                                package.add_module(collected_module);
-                            }
-                            ModuleType::Configuration => {
-                                package.add_configuration_module(collected_module);
-                            }
-                        }
+                        package.add_module(collected_module);
                     }
                     CollectionMessage::Error(error) => {
                         if first_error.is_none() {
@@ -74,16 +67,8 @@ impl<'a> ParallelCollector<'a> {
             let tx = tx.clone();
 
             Box::new(move |entry| {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(error) => {
-                        if let Err(err) = tx.send(CollectionMessage::Error(
-                            anyhow::Error::new(error).context("failed to walk test directory"),
-                        )) {
-                            tracing::warn!("failed to send walk error from worker thread: {err}");
-                        }
-                        return WalkState::Quit;
-                    }
+                let Ok(entry) = entry else {
+                    return WalkState::Continue;
                 };
 
                 if !entry.file_type().is_some_and(|ft| ft.is_file()) {
@@ -93,6 +78,10 @@ impl<'a> ParallelCollector<'a> {
                 let Ok(file_path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) else {
                     return WalkState::Continue;
                 };
+
+                if is_configuration_module_path(&file_path) {
+                    return WalkState::Continue;
+                }
 
                 match collect_file(&file_path, self.cwd, &self.settings, &[]) {
                     Ok(Some(module)) => {
@@ -105,7 +94,7 @@ impl<'a> ParallelCollector<'a> {
                     }
                     Ok(None) => {}
                     Err(error) => {
-                        if let Err(err) = tx.send(CollectionMessage::Error(error.into())) {
+                        if let Err(err) = tx.send(CollectionMessage::Error(error)) {
                             tracing::warn!(
                                 "failed to send collection error from worker thread: {err}"
                             );
@@ -191,46 +180,47 @@ fn python_file_types() -> Result<Types> {
         .context("failed to build Python file type matcher")
 }
 
+fn is_configuration_module_path(path: &Utf8Path) -> bool {
+    path.file_name()
+        .is_some_and(|file_name| file_name == "conftest.py")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use ruff_python_ast::PythonVersion;
 
-    fn temp_path(dir: &tempfile::TempDir) -> &Utf8Path {
-        Utf8Path::from_path(dir.path()).expect("temp path should be UTF-8")
-    }
+    use super::*;
 
-    fn collection_settings() -> CollectionSettings<'static> {
+    fn settings() -> CollectionSettings<'static> {
         CollectionSettings {
             python_version: PythonVersion::PY312,
             test_function_prefix: "test_",
             respect_ignore_files: true,
             collect_fixtures: false,
+            retain_source_text: false,
         }
     }
 
-    #[cfg(unix)]
     #[test]
-    fn collect_directory_reports_walker_errors() {
-        use std::os::unix::fs::symlink;
+    fn directory_collection_skips_configuration_modules() -> Result<()> {
+        let temp_dir = tempfile::tempdir().context("create temp dir")?;
+        let cwd = Utf8Path::from_path(temp_dir.path())
+            .context("temp dir should be UTF-8")?
+            .to_path_buf();
+        std::fs::write(cwd.join("conftest.py"), "def helper():\n    return 1\n")
+            .context("write conftest")?;
+        std::fs::write(
+            cwd.join("test_sample.py"),
+            "def test_sample():\n    assert True\n",
+        )
+        .context("write test module")?;
 
-        let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let root = temp_path(&temp_dir);
-        let test_path = root.join("test_sample.py");
-        std::fs::write(&test_path, "def test_sample(): pass\n").expect("write test file");
-        symlink(root, root.join("loop")).expect("create symlink loop");
+        let collector = ParallelCollector::new(&cwd, settings());
+        let package = collector.collect_directory(&cwd)?;
 
-        let collector = ParallelCollector::new(root, collection_settings());
+        assert!(package.configuration_module.is_none());
+        assert_eq!(package.test_count(), 1);
 
-        let error = collector
-            .collect_directory(&root.to_path_buf())
-            .expect_err("walker loop should fail collection");
-
-        let error = error.to_string();
-        assert!(
-            error.contains("failed to walk test directory"),
-            "unexpected error: {error}"
-        );
+        Ok(())
     }
 }
