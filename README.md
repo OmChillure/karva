@@ -55,7 +55,7 @@ pip install karva
 
 ### Usage
 
-By default, Karva will respect your `.gitignore` files when discovering tests in specified directories.
+By default, Karva honours your `.gitignore` files while discovering tests in the directories you specify.
 
 To run your tests, try any of the following:
 
