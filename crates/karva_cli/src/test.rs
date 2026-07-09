@@ -137,6 +137,14 @@ pub struct SubTestCommand {
     #[arg(long, help_heading = "Reporter options")]
     pub output_format: Option<OutputFormat>,
 
+    /// Emit one JSON object per test result to stdout (NDJSON).
+    ///
+    /// Suppresses human-readable progress and summary lines so stdout stays
+    /// machine-readable. Each line is a self-contained JSON object describing
+    /// a test result, retry attempt, or slow-test event.
+    #[clap(long, action = clap::ArgAction::SetTrue, help_heading = "Reporter options")]
+    pub json: bool,
+
     /// Show Python stdout during test execution.
     #[clap(short = 's', long, default_missing_value = "true", num_args=0..1, help_heading = "Reporter options")]
     pub show_output: Option<bool>,
@@ -364,6 +372,7 @@ impl SubTestCommand {
                 show_python_output: self.show_output,
                 status_level: self.status_level,
                 final_status_level: self.final_status_level,
+                json: self.json.then_some(true),
             }),
             test: Some(TestOptions {
                 test_function_prefix: self.test_prefix,

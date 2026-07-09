@@ -226,6 +226,23 @@ pub struct TerminalOptions {
         "#
     )]
     pub final_status_level: Option<FinalStatusLevel>,
+
+    /// Emit one JSON object per test result to stdout (NDJSON).
+    ///
+    /// When enabled, human-readable progress and summary lines are suppressed
+    /// so stdout stays machine-readable. Each line is a self-contained JSON
+    /// object describing a test result, retry attempt, or slow-test event.
+    ///
+    /// Defaults to `false`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[option(
+        default = r#"false"#,
+        value_type = "true | false",
+        example = r#"
+            json = true
+        "#
+    )]
+    pub json: Option<bool>,
 }
 
 impl TerminalOptions {
@@ -235,6 +252,7 @@ impl TerminalOptions {
             show_python_output: self.show_python_output.unwrap_or_default(),
             status_level: self.status_level.unwrap_or_default(),
             final_status_level: self.final_status_level.unwrap_or_default(),
+            json: self.json.unwrap_or(false),
         }
     }
 }

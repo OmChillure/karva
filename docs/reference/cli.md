@@ -73,6 +73,8 @@ karva test [OPTIONS] [PATH]...
 <li><code>skip</code>:  Same as <code>pass</code> until skip-specific summary lines are emitted</li>
 <li><code>all</code>:  Always display every summary status</li>
 </ul></dd><dt id="karva-test--help"><a href="#karva-test--help"><code>--help</code></a>, <code>-h</code></dt><dd><p>Print help (see a summary with '-h')</p>
+</dd><dt id="karva-test--json"><a href="#karva-test--json"><code>--json</code></a></dt><dd><p>Emit one JSON object per test result to stdout (NDJSON).</p>
+<p>Suppresses human-readable progress and summary lines so stdout stays machine-readable. Each line is a self-contained JSON object describing a test result, retry attempt, or slow-test event.</p>
 </dd><dt id="karva-test--last-failed"><a href="#karva-test--last-failed"><code>--last-failed</code></a>, <code>--lf</code></dt><dd><p>Re-run only the tests that failed in the previous run</p>
 </dd><dt id="karva-test--max-fail"><a href="#karva-test--max-fail"><code>--max-fail</code></a> <i>n</i></dt><dd><p>Stop scheduling new tests after this many failures.</p>
 <p>Accepts a positive integer such as <code>--max-fail=3</code>. <code>--max-fail=1</code> is equivalent to the legacy <code>--fail-fast</code>, and <code>--no-fail-fast</code> clears the limit. When <code>--max-fail</code> is provided alongside <code>--fail-fast</code> or <code>--no-fail-fast</code>, <code>--max-fail</code> takes precedence.</p>

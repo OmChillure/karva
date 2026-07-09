@@ -7,7 +7,7 @@ use clap::Parser;
 use fs_err as fs;
 use karva_cache::{RunCache, RunHash};
 use karva_cli::{SubTestCommand, Verbosity};
-use karva_diagnostic::{DummyReporter, Reporter, TestCaseReporter};
+use karva_diagnostic::{DummyReporter, JsonReporter, Reporter, TestCaseReporter};
 use karva_logging::{Printer, StatusLevel, set_colored_override, setup_tracing};
 use karva_metadata::RunIgnoredMode;
 use karva_metadata::filter::FiltersetSet;
@@ -153,7 +153,13 @@ fn run(f: impl FnOnce(Vec<OsString>) -> Vec<OsString>) -> anyhow::Result<ExitSta
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create worker progress directory `{parent}`"))?;
     }
-    let reporter: Box<dyn Reporter> = if matches!(printer.status_level(), StatusLevel::None) {
+    let reporter: Box<dyn Reporter> = if settings.terminal().json {
+        Box::new(
+            JsonReporter::new()
+                .with_progress_file(&progress_file)
+                .context("Failed to open worker progress file")?,
+        )
+    } else if matches!(printer.status_level(), StatusLevel::None) {
         Box::new(DummyReporter)
     } else {
         Box::new(

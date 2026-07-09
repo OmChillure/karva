@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -9,6 +10,14 @@ use crate::extensions::fixtures::{
     get_auto_use_fixtures,
 };
 
+/// Shared cache of normalized fixture *definitions* for a whole test run.
+///
+/// Keyed by fully-qualified fixture name. This stores the static dependency
+/// graph (`NormalizedFixture`), not runtime values — those live in
+/// [`super::FixtureCache`] and remain scoped so function-scoped values stay
+/// fresh per test.
+pub(super) type NormalizedFixtureCache = RefCell<HashMap<String, Rc<NormalizedFixture>>>;
+
 /// Resolves fixtures at runtime during test execution.
 ///
 /// Unlike pre-normalization, this resolver finds and normalizes fixtures
@@ -18,30 +27,41 @@ use crate::extensions::fixtures::{
 /// session package itself (session-autouse resolution) — the latter gives
 /// session-level autouse fixtures visibility into `framework_module` via
 /// the `HasFixtures` impl on `DiscoveredPackage`.
+///
+/// Normalized definitions are stored in a run-wide [`NormalizedFixtureCache`]
+/// so modules share conftest/framework graphs, and a per-resolver short-name
+/// index avoids repeating parent walks within the same lookup context.
 pub(super) struct RuntimeFixtureResolver<'a> {
     parents: &'a [&'a DiscoveredPackage],
     current: &'a (dyn HasFixtures<'a> + 'a),
-    fixture_cache: HashMap<String, Rc<NormalizedFixture>>,
+    /// Run-wide cache of fully built fixture graphs, keyed by qualified name.
+    normalized_cache: &'a NormalizedFixtureCache,
+    /// Short-name → normalized fixture for this `(parents, current)` context.
+    /// Within one resolution context fixture short names are unique (first
+    /// match wins), so this lets repeated lookups skip `find_fixture`.
+    local_by_name: HashMap<String, Rc<NormalizedFixture>>,
 }
 
 impl<'a> RuntimeFixtureResolver<'a> {
     pub(super) fn new(
         parents: &'a [&'a DiscoveredPackage],
         current: &'a (dyn HasFixtures<'a> + 'a),
+        normalized_cache: &'a NormalizedFixtureCache,
     ) -> Self {
         Self {
             parents,
             current,
-            fixture_cache: HashMap::new(),
+            normalized_cache,
+            local_by_name: HashMap::new(),
         }
     }
 
     /// Normalize a fixture and its dependencies recursively.
     ///
-    /// Function-scoped fixtures are NOT cached because their built-in dependencies
-    /// (e.g. `tmp_path`) must be fresh for each test invocation. Broader-scoped
-    /// fixtures are cached so they are shared across tests within the appropriate
-    /// scope.
+    /// Always caches the resulting graph, including function-scoped fixtures.
+    /// Freshness of runtime values (e.g. a new `tmp_path` per test) is handled
+    /// by [`super::FixtureCache`]'s function-scope clearing — not by rebuilding
+    /// the static dependency graph.
     fn normalize_fixture(
         &mut self,
         py: Python,
@@ -49,10 +69,8 @@ impl<'a> RuntimeFixtureResolver<'a> {
     ) -> Rc<NormalizedFixture> {
         let cache_key = fixture.name().to_string();
 
-        if fixture.scope() != FixtureScope::Function {
-            if let Some(cached) = self.fixture_cache.get(&cache_key) {
-                return Rc::clone(cached);
-            }
+        if let Some(cached) = self.normalized_cache.borrow().get(&cache_key) {
+            return Rc::clone(cached);
         }
 
         let required_fixtures: Vec<String> = fixture.required_fixtures(py);
@@ -68,9 +86,9 @@ impl<'a> RuntimeFixtureResolver<'a> {
             source_file: fixture.source_file().clone(),
         });
 
-        if fixture.scope() != FixtureScope::Function {
-            self.fixture_cache.insert(cache_key, Rc::clone(&result));
-        }
+        self.normalized_cache
+            .borrow_mut()
+            .insert(cache_key, Rc::clone(&result));
 
         result
     }
@@ -85,7 +103,13 @@ impl<'a> RuntimeFixtureResolver<'a> {
 
         auto_use_fixtures
             .into_iter()
-            .map(|fixture| self.normalize_fixture(py, fixture))
+            .map(|fixture| {
+                let short_name = fixture.name().function_name().to_string();
+                let normalized = self.normalize_fixture(py, fixture);
+                self.local_by_name
+                    .insert(short_name, Rc::clone(&normalized));
+                normalized
+            })
             .collect()
     }
 
@@ -124,10 +148,28 @@ impl<'a> RuntimeFixtureResolver<'a> {
         let mut normalized_fixtures = Vec::with_capacity(fixture_names.len());
 
         for dep_name in fixture_names {
+            // Self-referential parameters (a fixture that lists itself) must
+            // still go through `find_fixture`, which skips the current fixture
+            // and may resolve a parent of the same short name.
+            let is_self_ref = current_fixture
+                .is_some_and(|fixture| fixture.name().function_name() == dep_name.as_str());
+
+            if !is_self_ref && let Some(cached) = self.local_by_name.get(dep_name) {
+                normalized_fixtures.push(Rc::clone(cached));
+                continue;
+            }
+
             if let Some(fixture) =
                 find_fixture(current_fixture, dep_name, self.parents, self.current)
             {
                 let normalized = self.normalize_fixture(py, fixture);
+                // Only record the short-name mapping when it is not a shadowed
+                // self-reference; the local index is for the context's first
+                // match of that name.
+                if !is_self_ref {
+                    self.local_by_name
+                        .insert(dep_name.clone(), Rc::clone(&normalized));
+                }
                 normalized_fixtures.push(normalized);
             }
         }

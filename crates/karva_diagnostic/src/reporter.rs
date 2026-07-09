@@ -120,6 +120,134 @@ impl TestCaseReporter {
     }
 }
 
+/// A reporter that emits one JSON object per test event to stdout (NDJSON).
+///
+/// Emits a line for each final test result, each retry attempt, and each
+/// slow-test notification. Does not apply `--status-level` filtering so
+/// machine consumers always see a complete event stream.
+pub struct JsonReporter {
+    progress_file: Option<Mutex<ProgressFile>>,
+}
+
+impl JsonReporter {
+    pub fn new() -> Self {
+        Self {
+            progress_file: None,
+        }
+    }
+
+    /// Direct the reporter to publish the currently running test's name and
+    /// start time to `path` while it is in flight.
+    pub fn with_progress_file(mut self, path: &Utf8Path) -> std::io::Result<Self> {
+        self.progress_file = Some(Mutex::new(ProgressFile::spawn(path)?));
+        Ok(self)
+    }
+}
+
+impl Default for JsonReporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Serialize)]
+struct JsonTestEvent {
+    #[serde(rename = "type")]
+    event_type: &'static str,
+    name: String,
+    status: &'static str,
+    duration_secs: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    attempt: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct JsonSlowEvent {
+    #[serde(rename = "type")]
+    event_type: &'static str,
+    name: String,
+    duration_secs: f64,
+}
+
+fn status_str(kind: &IndividualTestResultKind) -> &'static str {
+    match kind {
+        IndividualTestResultKind::Passed => "passed",
+        IndividualTestResultKind::Failed => "failed",
+        IndividualTestResultKind::Skipped { .. } => "skipped",
+    }
+}
+
+fn skip_reason(kind: &IndividualTestResultKind) -> Option<String> {
+    match kind {
+        IndividualTestResultKind::Skipped { reason } => reason.clone(),
+        _ => None,
+    }
+}
+
+fn write_json_line(value: &impl Serialize) {
+    let mut stdout = std::io::stdout().lock();
+    if let Err(err) = (|| -> std::io::Result<()> {
+        serde_json::to_writer(&mut stdout, value).map_err(std::io::Error::other)?;
+        stdout.write_all(b"\n")?;
+        stdout.flush()
+    })() {
+        tracing::warn!("failed to write JSON test result line: {err}");
+    }
+}
+
+impl Reporter for JsonReporter {
+    fn report_test_case_result(
+        &self,
+        test_name: &QualifiedTestName,
+        result_kind: IndividualTestResultKind,
+        duration: Duration,
+    ) {
+        write_json_line(&JsonTestEvent {
+            event_type: "test",
+            name: test_name.to_string(),
+            status: status_str(&result_kind),
+            duration_secs: duration.as_secs_f64(),
+            reason: skip_reason(&result_kind),
+            attempt: None,
+        });
+    }
+
+    fn report_test_attempt(
+        &self,
+        test_name: &QualifiedTestName,
+        attempt: u32,
+        result_kind: IndividualTestResultKind,
+        duration: Duration,
+    ) {
+        write_json_line(&JsonTestEvent {
+            event_type: "test_attempt",
+            name: test_name.to_string(),
+            status: status_str(&result_kind),
+            duration_secs: duration.as_secs_f64(),
+            reason: skip_reason(&result_kind),
+            attempt: Some(attempt),
+        });
+    }
+
+    fn report_test_slow(&self, test_name: &QualifiedTestName, duration: Duration) {
+        write_json_line(&JsonSlowEvent {
+            event_type: "test_slow",
+            name: test_name.to_string(),
+            duration_secs: duration.as_secs_f64(),
+        });
+    }
+
+    fn report_test_started(&self, test_name: &QualifiedTestName) {
+        report_progress_started(self.progress_file.as_ref(), test_name);
+    }
+
+    fn report_test_finished(&self, test_name: &QualifiedTestName) {
+        report_progress_finished(self.progress_file.as_ref(), test_name);
+    }
+}
+
 struct ProgressFile {
     state: Arc<Mutex<Option<ProgressSnapshot>>>,
     stop: Arc<AtomicBool>,
@@ -322,37 +450,51 @@ impl Reporter for TestCaseReporter {
     }
 
     fn report_test_started(&self, test_name: &QualifiedTestName) {
-        let Some(progress_file) = self.progress_file.as_ref() else {
-            return;
-        };
-        let start_unix_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-            .unwrap_or(0);
-        let snapshot = ProgressSnapshot {
-            name: test_name.to_string(),
-            start_unix_ms,
-        };
-        let Ok(progress_file) = progress_file.lock() else {
-            tracing::warn!("failed to lock test progress file");
-            return;
-        };
-        if let Err(err) = progress_file.set_current_test(snapshot) {
-            tracing::warn!("failed to update test progress state: {err}");
-        }
+        report_progress_started(self.progress_file.as_ref(), test_name);
     }
 
-    fn report_test_finished(&self, _test_name: &QualifiedTestName) {
-        let Some(progress_file) = self.progress_file.as_ref() else {
-            return;
-        };
-        let Ok(progress_file) = progress_file.lock() else {
-            tracing::warn!("failed to lock test progress file");
-            return;
-        };
-        if let Err(err) = progress_file.clear() {
-            tracing::warn!("failed to clear test progress state: {err}");
-        }
+    fn report_test_finished(&self, test_name: &QualifiedTestName) {
+        report_progress_finished(self.progress_file.as_ref(), test_name);
+    }
+}
+
+fn report_progress_started(
+    progress_file: Option<&Mutex<ProgressFile>>,
+    test_name: &QualifiedTestName,
+) {
+    let Some(progress_file) = progress_file else {
+        return;
+    };
+    let start_unix_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+    let snapshot = ProgressSnapshot {
+        name: test_name.to_string(),
+        start_unix_ms,
+    };
+    let Ok(progress_file) = progress_file.lock() else {
+        tracing::warn!("failed to lock test progress file");
+        return;
+    };
+    if let Err(err) = progress_file.set_current_test(snapshot) {
+        tracing::warn!("failed to update test progress state: {err}");
+    }
+}
+
+fn report_progress_finished(
+    progress_file: Option<&Mutex<ProgressFile>>,
+    _test_name: &QualifiedTestName,
+) {
+    let Some(progress_file) = progress_file else {
+        return;
+    };
+    let Ok(progress_file) = progress_file.lock() else {
+        tracing::warn!("failed to lock test progress file");
+        return;
+    };
+    if let Err(err) = progress_file.clear() {
+        tracing::warn!("failed to clear test progress state: {err}");
     }
 }
 
@@ -545,5 +687,74 @@ mod tests {
             error.to_string().contains(path.as_str()),
             "unexpected error: {error}"
         );
+    }
+
+    #[test]
+    fn json_test_event_serializes_as_one_object() {
+        let event = JsonTestEvent {
+            event_type: "test",
+            name: "test_module::test_example".to_string(),
+            status: "passed",
+            duration_secs: 0.015,
+            reason: None,
+            attempt: None,
+        };
+        let line = serde_json::to_string(&event).expect("serialize");
+        assert_eq!(
+            line,
+            r#"{"type":"test","name":"test_module::test_example","status":"passed","duration_secs":0.015}"#
+        );
+    }
+
+    #[test]
+    fn json_test_event_includes_skip_reason_and_attempt() {
+        let event = JsonTestEvent {
+            event_type: "test_attempt",
+            name: "test_module::test_example".to_string(),
+            status: "skipped",
+            duration_secs: 0.0,
+            reason: Some("not ready".to_string()),
+            attempt: Some(2),
+        };
+        let line = serde_json::to_string(&event).expect("serialize");
+        assert_eq!(
+            line,
+            r#"{"type":"test_attempt","name":"test_module::test_example","status":"skipped","duration_secs":0.0,"reason":"not ready","attempt":2}"#
+        );
+    }
+
+    #[test]
+    fn json_slow_event_serializes() {
+        let event = JsonSlowEvent {
+            event_type: "test_slow",
+            name: "test_module::test_example".to_string(),
+            duration_secs: 1.5,
+        };
+        let line = serde_json::to_string(&event).expect("serialize");
+        assert_eq!(
+            line,
+            r#"{"type":"test_slow","name":"test_module::test_example","duration_secs":1.5}"#
+        );
+    }
+
+    #[test]
+    fn json_reporter_progress_file_is_written_and_cleared() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let path = Utf8PathBuf::try_from(temp_dir.path().join("current-test.json"))
+            .expect("temp path should be UTF-8");
+        let reporter = JsonReporter::new()
+            .with_progress_file(&path)
+            .expect("progress file should open");
+        let test_name = qualified_test_name();
+
+        reporter.report_test_started(&test_name);
+
+        let progress = wait_for_progress_snapshot(&path, |_| true);
+        assert_eq!(progress["name"], "test_module::test_example");
+        assert!(progress["start_unix_ms"].as_u64().is_some());
+
+        reporter.report_test_finished(&test_name);
+
+        wait_for_empty_progress_body(&path);
     }
 }

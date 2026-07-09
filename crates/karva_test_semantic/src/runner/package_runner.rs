@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -19,12 +19,12 @@ use crate::diagnostic::{
 };
 use crate::discovery::{DiscoveredModule, DiscoveredPackage};
 use crate::extensions::fixtures::{
-    Finalizer, FixtureScope, HasFixtures, NormalizedFixture, missing_arguments_from_error,
+    Finalizer, FixtureScope, NormalizedFixture, missing_arguments_from_error,
 };
 use crate::extensions::tags::expect_fail::ExpectFailTag;
 use crate::extensions::tags::skip::{extract_skip_reason, is_skip_exception};
 use crate::extensions::tags::timeout::TimeoutTag;
-use crate::runner::fixture_resolver::RuntimeFixtureResolver;
+use crate::runner::fixture_resolver::{NormalizedFixtureCache, RuntimeFixtureResolver};
 use crate::runner::test_iterator::{TestVariant, TestVariantIterator};
 use crate::runner::{FinalizerCache, FixtureArguments, FixtureCache};
 use crate::utils::{
@@ -46,6 +46,13 @@ pub struct PackageRunner<'ctx, 'a> {
     /// Cache for fixture finalizers to run cleanup at appropriate times.
     finalizer_cache: FinalizerCache,
 
+    /// Run-wide cache of normalized fixture definitions (dependency graphs).
+    ///
+    /// Shared across modules so conftest and framework fixtures are
+    /// normalized once. Distinct from [`Self::fixture_cache`], which stores
+    /// runtime values and is cleared per scope.
+    normalized_fixtures: NormalizedFixtureCache,
+
     /// Running count of failed tests observed during this run.
     ///
     /// Used to enforce `--max-fail=N`: once this counter reaches the
@@ -59,6 +66,7 @@ impl<'ctx, 'a> PackageRunner<'ctx, 'a> {
             context,
             fixture_cache: FixtureCache::default(),
             finalizer_cache: FinalizerCache::default(),
+            normalized_fixtures: RefCell::new(HashMap::new()),
             failed_count: Cell::new(0),
         }
     }
@@ -106,7 +114,10 @@ impl<'ctx, 'a> PackageRunner<'ctx, 'a> {
         // the user conftest at the session root and the framework module. No
         // `if let Some(...)` gate: the session always exists, and if neither
         // slot contributes any autouse fixtures the walk returns an empty vec.
-        self.run_auto_use_fixtures(py, &[], session, FixtureScope::Session);
+        {
+            let mut resolver = RuntimeFixtureResolver::new(&[], session, &self.normalized_fixtures);
+            self.run_auto_use_fixtures(py, &mut resolver, FixtureScope::Session);
+        }
 
         self.execute_package(py, session, &[]);
 
@@ -114,17 +125,18 @@ impl<'ctx, 'a> PackageRunner<'ctx, 'a> {
     }
 
     /// Resolve and run auto-use fixtures for `scope`, reporting any failures
-    /// through the standard fixture-failure diagnostic. The `current` source
-    /// is whichever `HasFixtures` provider applies for this scope (the
-    /// session package, a module, or a package configuration module).
-    fn run_auto_use_fixtures<'b>(
+    /// through the standard fixture-failure diagnostic.
+    ///
+    /// When the caller already has a resolver for this `(parents, current)`
+    /// context (module execution), pass it so normalized definitions stay
+    /// warm. Otherwise a short-lived resolver is built that still shares the
+    /// run-wide definition cache.
+    fn run_auto_use_fixtures(
         &self,
         py: Python<'_>,
-        parents: &'b [&'b DiscoveredPackage],
-        current: &'b (dyn HasFixtures<'b> + 'b),
+        resolver: &mut RuntimeFixtureResolver<'_>,
         scope: FixtureScope,
     ) {
-        let mut resolver = RuntimeFixtureResolver::new(parents, current);
         let auto_use_fixtures = resolver.get_normalized_auto_use_fixtures(py, scope);
         let auto_use_errors = self.run_fixtures(py, &auto_use_fixtures);
         for error in auto_use_errors {
@@ -143,16 +155,17 @@ impl<'ctx, 'a> PackageRunner<'ctx, 'a> {
         module: &DiscoveredModule,
         parents: &[&DiscoveredPackage],
     ) -> bool {
-        self.run_auto_use_fixtures(py, parents, module, FixtureScope::Module);
+        // One resolver for the whole module: module auto-use and every test
+        // share short-name hits and the run-wide normalized definition cache.
+        let mut resolver = RuntimeFixtureResolver::new(parents, module, &self.normalized_fixtures);
+
+        self.run_auto_use_fixtures(py, &mut resolver, FixtureScope::Module);
 
         let mut passed = true;
 
         for test_function in module.test_functions() {
-            // Create a new resolver for each test to handle fixture resolution
-            let mut test_resolver = RuntimeFixtureResolver::new(parents, module);
-
             // Iterate over all test variants (parametrize combinations × fixture combinations).
-            for variant in TestVariantIterator::new(py, test_function, &mut test_resolver) {
+            for variant in TestVariantIterator::new(py, test_function, &mut resolver) {
                 let variant_passed = self.execute_test_variant(py, variant);
                 self.record_outcome(variant_passed);
                 passed &= variant_passed;
@@ -187,7 +200,9 @@ impl<'ctx, 'a> PackageRunner<'ctx, 'a> {
         new_parents.push(package);
 
         if let Some(config_module) = package.configuration_module_impl() {
-            self.run_auto_use_fixtures(py, parents, config_module, FixtureScope::Package);
+            let mut resolver =
+                RuntimeFixtureResolver::new(parents, config_module, &self.normalized_fixtures);
+            self.run_auto_use_fixtures(py, &mut resolver, FixtureScope::Package);
         }
 
         let mut passed = true;

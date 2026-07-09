@@ -1733,6 +1733,37 @@ def test_2(): pass
     ");
 }
 
+/// `--json` emits one NDJSON object per test result and suppresses human
+/// progress/summary lines so stdout stays machine-readable.
+#[test]
+fn test_json_output() {
+    let context = TestContext::with_file(
+        "test.py",
+        r"
+import karva
+
+def test_pass(): pass
+
+def test_fail():
+    assert False
+
+@karva.tags.skip('not ready')
+def test_skip(): pass
+",
+    );
+
+    assert_cmd_snapshot!(context.command_no_parallel().arg("--json"), @r#"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    {"type":"test","name":"test::test_pass","status":"passed","duration_secs":0.0}
+    {"type":"test","name":"test::test_fail","status":"failed","duration_secs":0.0}
+    {"type":"test","name":"test::test_skip","status":"skipped","duration_secs":0.0,"reason":"not ready"}
+
+    ----- stderr -----
+    "#);
+}
+
 /// `-qq` is silent: even the summary line emitted by `-q` must be suppressed,
 /// so a failing run under `-qq` produces no stdout at all.
 #[test]

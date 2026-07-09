@@ -8,7 +8,9 @@ use anyhow::{Context as _, Result};
 use camino::Utf8PathBuf;
 use karva_cache::{AggregatedResults, DisplayFlakyTests};
 use karva_cli::TestCommand;
-use karva_logging::{Printer, Stdout, set_colored_override, setup_tracing};
+use karva_logging::{
+    FinalStatusLevel, Printer, StatusLevel, Stdout, set_colored_override, setup_tracing,
+};
 use karva_metadata::filter::FiltersetSet;
 use karva_metadata::{CovReport, NoTestsMode, ProjectMetadata, ProjectOptionsOverrides};
 use karva_project::Project;
@@ -68,10 +70,16 @@ pub fn test(args: TestCommand) -> Result<ExitStatus> {
 
     let project = Project::from_metadata(project_metadata);
 
-    let printer = Printer::new(
-        project.settings().terminal().status_level,
-        project.settings().terminal().final_status_level,
-    );
+    // In `--json` mode, suppress human-readable progress/summary so stdout is
+    // only NDJSON from workers. Workers still emit via `JsonReporter`.
+    let printer = if project.settings().terminal().json {
+        Printer::new(StatusLevel::None, FinalStatusLevel::None)
+    } else {
+        Printer::new(
+            project.settings().terminal().status_level,
+            project.settings().terminal().final_status_level,
+        )
+    };
 
     FiltersetSet::new(&sub_command.filter_expressions).context("invalid `--filter` expression")?;
 

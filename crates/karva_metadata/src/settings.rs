@@ -281,6 +281,7 @@ pub struct TerminalSettings {
     pub show_python_output: bool,
     pub status_level: StatusLevel,
     pub final_status_level: FinalStatusLevel,
+    pub json: bool,
 }
 
 #[derive(Default, Debug, Clone, Serialize)]

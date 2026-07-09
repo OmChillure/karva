@@ -598,7 +598,11 @@ pub fn run_parallel_tests(
         worker_binary: &worker_binary,
         coverage_enabled: !project.settings().coverage().sources.is_empty(),
     };
-    let forward_stdout = printer.stream_for_test_result().is_enabled();
+    // Pipe and line-forward worker stdout when human result lines are enabled
+    // or when `--json` is active so concurrent workers do not interleave
+    // mid-line NDJSON objects.
+    let forward_stdout =
+        printer.stream_for_test_result().is_enabled() || project.settings().terminal().json;
     let mut worker_manager = spawn_workers(&spawn, &partitions, forward_stdout)?;
 
     let max_fail_cache = project.settings().max_fail().has_limit().then_some(&cache);

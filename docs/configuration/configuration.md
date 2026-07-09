@@ -188,6 +188,29 @@ final-status-level = "fail"
 
 ---
 
+### `json`
+
+Emit one JSON object per test result to stdout (NDJSON).
+
+When enabled, human-readable progress and summary lines are suppressed
+so stdout stays machine-readable. Each line is a self-contained JSON
+object describing a test result, retry attempt, or slow-test event.
+
+Defaults to `false`.
+
+**Default value**: `false`
+
+**Type**: `true | false`
+
+**Example usage** (`pyproject.toml`):
+
+```toml
+[tool.karva.profile.default.terminal]
+json = true
+```
+
+---
+
 ### `output-format`
 
 The format to use for printing diagnostic messages.

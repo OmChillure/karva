@@ -66,6 +66,7 @@ impl TestContext {
         settings.add_filter(r"\x1b\[[0-9;]*m", "");
         settings.add_filter(r"\[\s*\d+\.\d+s\]", "[TIME]");
         settings.add_filter(r"(\s|\()(\d+m )?(\d+\.)?\d+(ms|s)", "$1[TIME]");
+        settings.add_filter(r#""duration_secs":[0-9.eE+-]+"#, r#""duration_secs":0.0"#);
         settings.add_filter(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", "[DATETIME]");
         settings.add_filter(
             r"run-\d+(-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?",
