@@ -5,6 +5,7 @@ use clap::builder::styling::{AnsiColor, Effects};
 mod cache;
 mod enums;
 mod partition;
+mod quarantine;
 mod show_config;
 mod snapshot;
 mod test;
@@ -13,6 +14,7 @@ mod verbosity;
 pub use cache::{CacheAction, CacheCommand};
 pub use enums::{CovReport, NoTests, OutputFormat, RunIgnored};
 pub use partition::PartitionSelection;
+pub use quarantine::{QuarantineAction, QuarantineCommand};
 pub use show_config::ShowConfigCommand;
 pub use snapshot::{
     SnapshotAction, SnapshotCommand, SnapshotDeleteArgs, SnapshotFilterArgs, SnapshotPruneArgs,
@@ -45,6 +47,9 @@ pub enum Command {
 
     /// Manage the karva cache.
     Cache(CacheCommand),
+
+    /// Manage quarantined flaky tests.
+    Quarantine(QuarantineCommand),
 
     /// Print the resolved configuration karva would run with.
     ShowConfig(ShowConfigCommand),

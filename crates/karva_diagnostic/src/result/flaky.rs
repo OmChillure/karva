@@ -38,6 +38,14 @@ impl FlakyTest {
         }
     }
 
+    /// Fully qualified name including params, used as the quarantine key.
+    pub fn full_name(&self) -> String {
+        match &self.params {
+            Some(params) => format!("{}::{}{params}", self.module_name, self.function_name),
+            None => format!("{}::{}", self.module_name, self.function_name),
+        }
+    }
+
     pub fn display(&self) -> DisplayFlakyTest<'_> {
         DisplayFlakyTest(self)
     }

@@ -17,6 +17,7 @@ karva <COMMAND>
 <dl class="cli-reference"><dt><a href="#karva-test"><code>karva test</code></a></dt><dd><p>Run tests</p></dd>
 <dt><a href="#karva-snapshot"><code>karva snapshot</code></a></dt><dd><p>Manage snapshots created by <code>karva.assert_snapshot()</code></p></dd>
 <dt><a href="#karva-cache"><code>karva cache</code></a></dt><dd><p>Manage the karva cache</p></dd>
+<dt><a href="#karva-quarantine"><code>karva quarantine</code></a></dt><dd><p>Manage quarantined flaky tests</p></dd>
 <dt><a href="#karva-show-config"><code>karva show-config</code></a></dt><dd><p>Print the resolved configuration karva would run with</p></dd>
 <dt><a href="#karva-version"><code>karva version</code></a></dt><dd><p>Display Karva's version</p></dd>
 <dt><a href="#karva-help"><code>karva help</code></a></dt><dd><p>Print this message or the help of the given subcommand(s)</p></dd>
@@ -104,7 +105,10 @@ karva test [OPTIONS] [PATH]...
 </dd><dt id="karva-test--profile"><a href="#karva-test--profile"><code>--profile</code></a>, <code>-P</code> <i>name</i></dt><dd><p>Configuration profile to use.</p>
 <p>Profiles are defined as <code>&#91;profile.&lt;name&gt;&#93;</code> sections in <code>karva.toml</code> (or <code>&#91;tool.karva.profile.&lt;name&gt;&#93;</code> in <code>pyproject.toml</code>) and may override any of the <code>&#91;src&#93;</code>, <code>&#91;terminal&#93;</code>, and <code>&#91;test&#93;</code> settings. The selected profile is layered on top of any <code>&#91;profile.default&#93;</code> overrides, which themselves layer on top of the top-level options.</p>
 <p>Defaults to <code>default</code>.</p>
-<p>May also be set with the <code>KARVA_PROFILE</code> environment variable.</p></dd><dt id="karva-test--retry"><a href="#karva-test--retry"><code>--retry</code></a> <i>retry</i></dt><dd><p>When set, the test will retry failed tests up to this number of times</p>
+<p>May also be set with the <code>KARVA_PROFILE</code> environment variable.</p></dd><dt id="karva-test--quarantine"><a href="#karva-test--quarantine"><code>--quarantine</code></a></dt><dd><p>Track pass/fail history and quarantine flaky tests.</p>
+<p>When enabled, karva records each test's outcomes across runs and automatically quarantines tests that fail then pass on retry, or that flip between passing and failing. Quarantined tests still run and are reported, but their failures do not fail the run or break CI.</p>
+<p>List quarantined tests with <code>karva quarantine list</code>.</p>
+</dd><dt id="karva-test--retry"><a href="#karva-test--retry"><code>--retry</code></a> <i>retry</i></dt><dd><p>When set, the test will retry failed tests up to this number of times</p>
 </dd><dt id="karva-test--run-ignored"><a href="#karva-test--run-ignored"><code>--run-ignored</code></a> <i>run-ignored</i></dt><dd><p>Run ignored tests</p>
 <p>Possible values:</p>
 <ul>
@@ -345,6 +349,47 @@ Print this message or the help of the given subcommand(s)
 
 ```
 karva cache help [COMMAND]
+```
+
+## karva quarantine
+
+Manage quarantined flaky tests
+
+<h3 class="cli-reference">Usage</h3>
+
+```
+karva quarantine <COMMAND>
+```
+
+<h3 class="cli-reference">Commands</h3>
+
+<dl class="cli-reference"><dt><a href="#karva-quarantine-list"><code>karva quarantine list</code></a></dt><dd><p>List tests currently in the quarantine set</p></dd>
+<dt><a href="#karva-quarantine-help"><code>karva quarantine help</code></a></dt><dd><p>Print this message or the help of the given subcommand(s)</p></dd>
+</dl>
+
+### karva quarantine list
+
+List tests currently in the quarantine set
+
+<h3 class="cli-reference">Usage</h3>
+
+```
+karva quarantine list
+```
+
+<h3 class="cli-reference">Options</h3>
+
+<dl class="cli-reference"><dt id="karva-quarantine-list--help"><a href="#karva-quarantine-list--help"><code>--help</code></a>, <code>-h</code></dt><dd><p>Print help</p>
+</dd></dl>
+
+### karva quarantine help
+
+Print this message or the help of the given subcommand(s)
+
+<h3 class="cli-reference">Usage</h3>
+
+```
+karva quarantine help [COMMAND]
 ```
 
 ## karva show-config

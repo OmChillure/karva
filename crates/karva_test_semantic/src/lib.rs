@@ -12,6 +12,8 @@ pub(crate) use context::Context;
 pub use karva_coverage::CoverageConfig;
 pub use python::init_module;
 
+use std::collections::HashSet;
+
 use camino::Utf8Path;
 use karva_coverage::CoverageSession;
 use karva_diagnostic::{Reporter, TestRunResult};
@@ -27,15 +29,25 @@ use crate::runner::PackageRunner;
 ///
 /// This encapsulates the core test execution logic: attaching to a Python interpreter,
 /// discovering tests, and running them.
-pub fn run_tests(
+///
+/// `quarantine_set` holds fully qualified test names whose failures should be
+/// reported as quarantined rather than hard failures.
+pub fn run_tests<S: std::hash::BuildHasher>(
     cwd: &Utf8Path,
     settings: &ProjectSettings,
     python_version: PythonVersion,
     reporter: &dyn Reporter,
     test_paths: Vec<Result<TestPath, TestPathError>>,
     coverage: Option<&CoverageConfig>,
+    quarantine_set: HashSet<String, S>,
 ) -> TestRunResult {
-    let context = Context::new(cwd, settings, python_version, reporter);
+    let context = Context::new(
+        cwd,
+        settings,
+        python_version,
+        reporter,
+        quarantine_set.into_iter().collect(),
+    );
 
     attach_with_output(settings.terminal().show_python_output, |py| {
         let cov_session = coverage.and_then(|cfg| match CoverageSession::start(py, cwd, cfg) {

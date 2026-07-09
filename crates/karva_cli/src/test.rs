@@ -107,6 +107,17 @@ pub struct SubTestCommand {
     #[clap(long, help_heading = "Runner options")]
     pub retry: Option<u32>,
 
+    /// Track pass/fail history and quarantine flaky tests.
+    ///
+    /// When enabled, karva records each test's outcomes across runs and
+    /// automatically quarantines tests that fail then pass on retry, or that
+    /// flip between passing and failing. Quarantined tests still run and are
+    /// reported, but their failures do not fail the run or break CI.
+    ///
+    /// List quarantined tests with `karva quarantine list`.
+    #[clap(long, action = clap::ArgAction::SetTrue, help_heading = "Runner options")]
+    pub quarantine: bool,
+
     /// Threshold in seconds after which a test is flagged as slow.
     ///
     /// When a test takes longer than this duration, it is reported with a

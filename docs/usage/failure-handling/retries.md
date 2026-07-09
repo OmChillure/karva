@@ -75,3 +75,5 @@ Both variables are always set, even when retries are disabled. See [Environment 
 ## When not to retry
 
 Retries hide regressions. Reach for them on tests that are flaky for known infrastructure reasons; do not blanket-enable them across the suite to suppress real failures. If a test is flaky for reasons you control, prefer fixing the root cause.
+
+To track flakes across runs and keep them from breaking CI, see [Quarantine](quarantine.md).

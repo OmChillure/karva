@@ -15,10 +15,10 @@ pub struct TestResultStats {
 }
 
 impl TestResultStats {
-    /// Total number of tests run. `Flaky` is a marker on a passing test and
-    /// is not counted as a separate test.
+    /// Total number of tests run. `Flaky` and `Slow` are markers and are not
+    /// counted as separate tests. Quarantined failures are included.
     pub fn total(&self) -> usize {
-        self.passed() + self.failed() + self.skipped()
+        self.passed() + self.failed() + self.skipped() + self.quarantined()
     }
 
     pub fn is_success(&self) -> bool {
@@ -56,6 +56,10 @@ impl TestResultStats {
 
     pub fn slow(&self) -> usize {
         self.get(TestResultKind::Slow)
+    }
+
+    pub fn quarantined(&self) -> usize {
+        self.get(TestResultKind::Quarantined)
     }
 
     pub fn add(&mut self, kind: TestResultKind) {
@@ -106,7 +110,14 @@ impl<'de> Deserialize<'de> for TestResultStats {
                     let kind = TestResultKind::from_str(&key).map_err(|_| {
                         de::Error::unknown_field(
                             &key,
-                            &["passed", "failed", "skipped", "flaky", "slow"],
+                            &[
+                                "passed",
+                                "failed",
+                                "skipped",
+                                "flaky",
+                                "slow",
+                                "quarantined",
+                            ],
                         )
                     })?;
                     inner.insert(kind, value);
@@ -159,6 +170,14 @@ impl fmt::Display for DisplayTestResultStats<'_> {
             parts.push(
                 format!("{} failed", self.stats.failed())
                     .red()
+                    .bold()
+                    .to_string(),
+            );
+        }
+        if self.stats.quarantined() > 0 {
+            parts.push(
+                format!("{} quarantined", self.stats.quarantined())
+                    .yellow()
                     .bold()
                     .to_string(),
             );

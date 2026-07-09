@@ -5,7 +5,10 @@ use std::time::Duration;
 use anyhow::Result;
 use camino::{Utf8Path, Utf8PathBuf};
 use fs_err as fs;
-use karva_diagnostic::{FlakyTest, TestResultKind, TestResultStats, TestRunResult};
+use karva_diagnostic::{
+    FlakyTest, QuarantinedFailure, TestOutcomeRecord, TestResultKind, TestResultStats,
+    TestRunResult,
+};
 use ruff_db::diagnostic::DisplayDiagnosticConfig;
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +38,10 @@ pub struct AggregatedResults {
     pub diagnostics: String,
     pub failed_tests: Vec<String>,
     pub flaky_tests: Vec<FlakyTest>,
+    pub quarantined_failures: Vec<QuarantinedFailure>,
+    pub outcomes: Vec<TestOutcomeRecord>,
+    /// Tests newly added to quarantine after this run's history update.
+    pub newly_quarantined: Vec<karva_diagnostic::QuarantinedTest>,
     pub durations: HashMap<String, Duration>,
 }
 
@@ -153,6 +160,12 @@ impl RunCache {
             .collect();
         write_json_if_nonempty(&worker_dir, CacheFile::FailedTests, &failed_names)?;
         write_json_if_nonempty(&worker_dir, CacheFile::FlakyTests, result.flaky_tests())?;
+        write_json_if_nonempty(
+            &worker_dir,
+            CacheFile::QuarantinedFailures,
+            result.quarantined_failures(),
+        )?;
+        write_json_if_nonempty(&worker_dir, CacheFile::Outcomes, result.outcomes())?;
 
         Ok(())
     }
@@ -174,6 +187,16 @@ fn read_worker_results(worker_dir: &Utf8Path, results: &mut AggregatedResults) -
 
     if let Some(flaky) = read_json::<Vec<FlakyTest>>(worker_dir, CacheFile::FlakyTests)? {
         results.flaky_tests.extend(flaky);
+    }
+
+    if let Some(quarantined) =
+        read_json::<Vec<QuarantinedFailure>>(worker_dir, CacheFile::QuarantinedFailures)?
+    {
+        results.quarantined_failures.extend(quarantined);
+    }
+
+    if let Some(outcomes) = read_json::<Vec<TestOutcomeRecord>>(worker_dir, CacheFile::Outcomes)? {
+        results.outcomes.extend(outcomes);
     }
 
     if let Some(durations) =

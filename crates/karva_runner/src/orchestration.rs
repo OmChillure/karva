@@ -11,8 +11,9 @@ use crossbeam_channel::{Receiver, TryRecvError};
 
 use crate::shutdown::shutdown_receiver;
 use karva_cache::{
-    AggregatedResults, CACHE_DIR, RunCache, RunHash, read_last_failed, read_recent_durations,
-    write_last_failed as persist_last_failed,
+    AggregatedResults, CACHE_DIR, RunCache, RunHash, read_last_failed, read_quarantine,
+    read_recent_durations, read_test_history, update_history_and_quarantine,
+    write_last_failed as persist_last_failed, write_quarantine, write_test_history,
 };
 use karva_cli::{PartitionSelection, SubTestCommand};
 use karva_collector::{CollectedPackage, CollectionSettings};
@@ -622,6 +623,10 @@ pub fn run_parallel_tests(
         write_last_failed(&cache_dir, &results.failed_tests);
     }
 
+    if args.quarantine {
+        update_quarantine_state(&cache_dir, &mut results);
+    }
+
     let coverage_files = if project.settings().coverage().sources.is_empty() {
         Vec::new()
     } else {
@@ -633,6 +638,39 @@ pub fn run_parallel_tests(
         coverage_files,
         timed_out,
     })
+}
+
+/// Record this run's outcomes into cross-run history and auto-quarantine flakes.
+fn update_quarantine_state(cache_dir: &Utf8Path, results: &mut AggregatedResults) {
+    let mut history = match read_test_history(cache_dir) {
+        Ok(history) => history,
+        Err(err) => {
+            tracing::warn!("Failed to read test history: {err}");
+            return;
+        }
+    };
+    let mut quarantine = match read_quarantine(cache_dir) {
+        Ok(list) => list,
+        Err(err) => {
+            tracing::warn!("Failed to read quarantine list: {err}");
+            return;
+        }
+    };
+
+    let newly = update_history_and_quarantine(
+        &mut history,
+        &mut quarantine,
+        &results.outcomes,
+        &results.flaky_tests,
+    );
+    results.newly_quarantined = newly;
+
+    if let Err(err) = write_test_history(cache_dir, &history) {
+        tracing::warn!("Failed to write test history: {err}");
+    }
+    if let Err(err) = write_quarantine(cache_dir, &quarantine) {
+        tracing::warn!("Failed to write quarantine list: {err}");
+    }
 }
 
 const MIN_TESTS_PER_WORKER: usize = 5;

@@ -187,6 +187,15 @@ impl TestContext {
         command
     }
 
+    pub fn quarantine(&self, subcommand: &str) -> Command {
+        let mut command = self.karva_command();
+        command
+            .arg("quarantine")
+            .arg(subcommand)
+            .current_dir(self.root());
+        command
+    }
+
     pub fn version(&self) -> Command {
         let mut command = self.karva_command();
         command.arg("version").current_dir(self.root());

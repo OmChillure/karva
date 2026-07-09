@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use camino::Utf8Path;
@@ -37,12 +38,15 @@ impl<'a> Context<'a> {
         settings: &'a ProjectSettings,
         python_version: PythonVersion,
         reporter: &'a dyn Reporter,
+        quarantine_set: HashSet<String>,
     ) -> Self {
+        let mut result = TestRunResult::default();
+        result.set_quarantine_set(quarantine_set);
         Self {
             cwd,
             settings,
             python_version,
-            result: Rc::new(RefCell::new(TestRunResult::default())),
+            result: Rc::new(RefCell::new(result)),
             reporter,
         }
     }
@@ -91,10 +95,17 @@ impl<'a> Context<'a> {
         test_result: IndividualTestResultKind,
         duration: std::time::Duration,
     ) -> bool {
-        let result = matches!(
+        // Quarantined failures are remapped inside `register_test_case_result`
+        // when the test is in the quarantine set; treat that as non-blocking
+        // for `--max-fail` by checking the set up front as well.
+        let will_quarantine = matches!(test_result, IndividualTestResultKind::Failed)
+            && self.result.borrow().is_quarantined(test_case_name);
+        let counts_as_pass = matches!(
             &test_result,
-            IndividualTestResultKind::Passed | IndividualTestResultKind::Skipped { .. }
-        );
+            IndividualTestResultKind::Passed
+                | IndividualTestResultKind::Skipped { .. }
+                | IndividualTestResultKind::Quarantined
+        ) || will_quarantine;
 
         self.result().register_test_case_result(
             test_case_name,
@@ -103,7 +114,7 @@ impl<'a> Context<'a> {
             Some(self.reporter),
         );
 
-        result
+        counts_as_pass
     }
 
     /// Forward a per-attempt outcome to the reporter. Does not touch
@@ -149,10 +160,14 @@ impl<'a> Context<'a> {
         passed_on: u32,
         total_attempts: u32,
     ) -> bool {
+        let will_quarantine = matches!(result, IndividualTestResultKind::Failed)
+            && self.result.borrow().is_quarantined(test_case_name);
         let passed = matches!(
             result,
-            IndividualTestResultKind::Passed | IndividualTestResultKind::Skipped { .. }
-        );
+            IndividualTestResultKind::Passed
+                | IndividualTestResultKind::Skipped { .. }
+                | IndividualTestResultKind::Quarantined
+        ) || will_quarantine;
         self.result().register_retried_result(
             test_case_name,
             result,

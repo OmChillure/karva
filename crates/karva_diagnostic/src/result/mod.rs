@@ -1,8 +1,9 @@
 mod flaky;
 mod kind;
+mod quarantine;
 mod stats;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use karva_python_semantic::{QualifiedFunctionName, QualifiedTestName};
 use ruff_db::diagnostic::Diagnostic;
@@ -11,6 +12,10 @@ use crate::reporter::Reporter;
 
 pub use flaky::{DisplayFlakyTest, DisplayFlakyTests, FlakyTest};
 pub use kind::{IndividualTestResultKind, TestResultKind};
+pub use quarantine::{
+    DisplayQuarantinedFailure, DisplayQuarantinedFailures, QuarantineReason, QuarantinedFailure,
+    QuarantinedTest, StoredOutcome, TestOutcomeRecord,
+};
 pub use stats::TestResultStats;
 
 /// Represents the result of a test run.
@@ -33,6 +38,17 @@ pub struct TestRunResult {
 
     /// Tests that passed only after at least one retry.
     flaky_tests: Vec<FlakyTest>,
+
+    /// Quarantined failures observed during this run.
+    quarantined_failures: Vec<QuarantinedFailure>,
+
+    /// Final outcomes for every non-skipped test, keyed by full qualified name
+    /// (including params). Used to update cross-run history.
+    outcomes: Vec<TestOutcomeRecord>,
+
+    /// Fully qualified names of tests currently in the quarantine set.
+    /// When set, failures of these tests are recorded as quarantined.
+    quarantine_set: HashSet<String>,
 }
 
 impl TestRunResult {
@@ -48,6 +64,39 @@ impl TestRunResult {
         &self.stats
     }
 
+    /// Install the set of currently quarantined full test names.
+    ///
+    /// Failures of tests in this set are recorded as [`IndividualTestResultKind::Quarantined`]
+    /// instead of hard failures.
+    pub fn set_quarantine_set(&mut self, names: HashSet<String>) {
+        self.quarantine_set = names;
+    }
+
+    pub fn is_quarantined(&self, test_case_name: &QualifiedTestName) -> bool {
+        self.quarantine_set.contains(&test_case_name.to_string())
+    }
+
+    /// Map a raw runner outcome through the quarantine set.
+    fn apply_quarantine(
+        &self,
+        test_case_name: &QualifiedTestName,
+        result: IndividualTestResultKind,
+    ) -> IndividualTestResultKind {
+        if matches!(result, IndividualTestResultKind::Failed) && self.is_quarantined(test_case_name)
+        {
+            IndividualTestResultKind::Quarantined
+        } else {
+            result
+        }
+    }
+
+    fn record_outcome(&mut self, test_case_name: &QualifiedTestName, outcome: StoredOutcome) {
+        self.outcomes.push(TestOutcomeRecord::from_qualified_name(
+            test_case_name,
+            outcome,
+        ));
+    }
+
     pub fn register_test_case_result(
         &mut self,
         test_case_name: &QualifiedTestName,
@@ -55,12 +104,29 @@ impl TestRunResult {
         duration: std::time::Duration,
         reporter: Option<&dyn Reporter>,
     ) {
+        let result = self.apply_quarantine(test_case_name, result);
         self.stats.add(result.clone().into());
 
         let function_name = test_case_name.function_name().clone();
 
-        if matches!(result, IndividualTestResultKind::Failed) {
-            self.failed_tests.push(function_name.clone());
+        match &result {
+            IndividualTestResultKind::Failed => {
+                self.failed_tests.push(function_name.clone());
+                self.record_outcome(test_case_name, StoredOutcome::Failed);
+            }
+            IndividualTestResultKind::Quarantined => {
+                self.quarantined_failures
+                    .push(QuarantinedFailure::from_qualified_name(
+                        test_case_name,
+                        duration,
+                    ));
+                // History still records a failure so flip detection keeps working.
+                self.record_outcome(test_case_name, StoredOutcome::Failed);
+            }
+            IndividualTestResultKind::Passed => {
+                self.record_outcome(test_case_name, StoredOutcome::Passed);
+            }
+            IndividualTestResultKind::Skipped { .. } => {}
         }
 
         if let Some(reporter) = reporter {
@@ -92,20 +158,35 @@ impl TestRunResult {
         total_attempts: u32,
         _reporter: Option<&dyn Reporter>,
     ) {
+        let result = self.apply_quarantine(test_case_name, result.clone());
         self.stats.add(result.clone().into());
 
         let function_name = test_case_name.function_name().clone();
 
-        if matches!(result, IndividualTestResultKind::Failed) {
-            self.failed_tests.push(function_name.clone());
-        } else if matches!(result, IndividualTestResultKind::Passed) {
-            self.stats.add(TestResultKind::Flaky);
-            self.flaky_tests.push(FlakyTest::from_qualified_name(
-                test_case_name,
-                passed_on,
-                total_attempts,
-                duration,
-            ));
+        match &result {
+            IndividualTestResultKind::Failed => {
+                self.failed_tests.push(function_name.clone());
+                self.record_outcome(test_case_name, StoredOutcome::Failed);
+            }
+            IndividualTestResultKind::Quarantined => {
+                self.quarantined_failures
+                    .push(QuarantinedFailure::from_qualified_name(
+                        test_case_name,
+                        duration,
+                    ));
+                self.record_outcome(test_case_name, StoredOutcome::Failed);
+            }
+            IndividualTestResultKind::Passed => {
+                self.stats.add(TestResultKind::Flaky);
+                self.flaky_tests.push(FlakyTest::from_qualified_name(
+                    test_case_name,
+                    passed_on,
+                    total_attempts,
+                    duration,
+                ));
+                self.record_outcome(test_case_name, StoredOutcome::Flaky);
+            }
+            IndividualTestResultKind::Skipped { .. } => {}
         }
 
         self.durations
@@ -161,5 +242,13 @@ impl TestRunResult {
 
     pub fn flaky_tests(&self) -> &[FlakyTest] {
         &self.flaky_tests
+    }
+
+    pub fn quarantined_failures(&self) -> &[QuarantinedFailure] {
+        &self.quarantined_failures
+    }
+
+    pub fn outcomes(&self) -> &[TestOutcomeRecord] {
+        &self.outcomes
     }
 }

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use camino::Utf8PathBuf;
-use karva_cache::{AggregatedResults, DisplayFlakyTests};
+use karva_cache::{AggregatedResults, DisplayFlakyTests, DisplayQuarantinedFailures};
 use karva_cli::TestCommand;
 use karva_logging::{Printer, Stdout, set_colored_override, setup_tracing};
 use karva_metadata::filter::FiltersetSet;
@@ -190,7 +190,11 @@ pub fn test(args: TestCommand) -> Result<ExitStatus> {
         }
     }
 
-    if result.stats.is_success() && result.diagnostics.is_empty() && !coverage_below_threshold {
+    // Quarantined failures still emit diagnostics for visibility, but they
+    // must not break CI. Only hard failures, non-test diagnostics (when no
+    // quarantined results absorbed them), and coverage thresholds fail the run.
+    let diagnostics_block_exit = !result.diagnostics.is_empty() && result.stats.quarantined() == 0;
+    if result.stats.is_success() && !diagnostics_block_exit && !coverage_below_threshold {
         Ok(ExitStatus::Success)
     } else {
         Ok(ExitStatus::Failure)
@@ -241,11 +245,26 @@ pub fn print_test_output(
     drop(details);
 
     let mut summary = printer
-        .stream_for_summary(result.stats.is_success(), result.stats.flaky() > 0)
+        .stream_for_summary(
+            result.stats.is_success(),
+            result.stats.flaky() > 0 || result.stats.quarantined() > 0,
+        )
         .lock();
 
     write!(summary, "{}", result.stats.display(start_time))?;
     write!(summary, "{}", DisplayFlakyTests::new(&result.flaky_tests))?;
+    write!(
+        summary,
+        "{}",
+        DisplayQuarantinedFailures::new(&result.quarantined_failures)
+    )?;
+
+    if !result.newly_quarantined.is_empty() {
+        writeln!(summary, "Newly quarantined:")?;
+        for entry in &result.newly_quarantined {
+            writeln!(summary, "  {} ({})", entry.name, entry.reason)?;
+        }
+    }
 
     Ok(())
 }

@@ -71,11 +71,16 @@ fn show_for_status_level(level: StatusLevel, kind: &IndividualTestResultKind) ->
     match level {
         StatusLevel::None => false,
         StatusLevel::Fail | StatusLevel::Retry | StatusLevel::Slow => {
-            matches!(kind, IndividualTestResultKind::Failed)
+            matches!(
+                kind,
+                IndividualTestResultKind::Failed | IndividualTestResultKind::Quarantined
+            )
         }
         StatusLevel::Pass => matches!(
             kind,
-            IndividualTestResultKind::Failed | IndividualTestResultKind::Passed
+            IndividualTestResultKind::Failed
+                | IndividualTestResultKind::Quarantined
+                | IndividualTestResultKind::Passed
         ),
         StatusLevel::Skip | StatusLevel::All => true,
     }
@@ -391,6 +396,7 @@ enum ResultLabel {
     Fail,
     Skip,
     Slow,
+    Quarantined,
 }
 
 impl ResultLabel {
@@ -400,6 +406,7 @@ impl ResultLabel {
             Self::Fail => "FAIL",
             Self::Skip => "SKIP",
             Self::Slow => "SLOW",
+            Self::Quarantined => "QUARANTINED",
         }
     }
 
@@ -408,7 +415,7 @@ impl ResultLabel {
         match self {
             Self::Pass => text.green().bold().to_string(),
             Self::Fail => text.red().bold().to_string(),
-            Self::Skip | Self::Slow => text.yellow().bold().to_string(),
+            Self::Skip | Self::Slow | Self::Quarantined => text.yellow().bold().to_string(),
         }
     }
 }
@@ -418,6 +425,7 @@ impl From<&IndividualTestResultKind> for ResultLabel {
         match kind {
             IndividualTestResultKind::Passed => Self::Pass,
             IndividualTestResultKind::Failed => Self::Fail,
+            IndividualTestResultKind::Quarantined => Self::Quarantined,
             IndividualTestResultKind::Skipped { .. } => Self::Skip,
         }
     }

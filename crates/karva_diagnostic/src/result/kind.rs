@@ -6,7 +6,12 @@
 pub enum IndividualTestResultKind {
     Passed,
     Failed,
-    Skipped { reason: Option<String> },
+    /// Failed while listed in the quarantine set. Still reported, but does
+    /// not fail the run or count toward `--max-fail`.
+    Quarantined,
+    Skipped {
+        reason: Option<String>,
+    },
 }
 
 /// A test result kind suitable for aggregation in [`super::TestResultStats`].
@@ -27,6 +32,9 @@ pub enum TestResultKind {
     /// threshold. Tracked alongside the test's actual outcome so the summary
     /// can show how many tests were slow regardless of pass/fail.
     Slow,
+    /// A test that failed while quarantined. Counted in the total and shown
+    /// in the summary, but does not make the run unsuccessful.
+    Quarantined,
 }
 
 impl TestResultKind {
@@ -37,6 +45,7 @@ impl TestResultKind {
             Self::Skipped => "skipped",
             Self::Flaky => "flaky",
             Self::Slow => "slow",
+            Self::Quarantined => "quarantined",
         }
     }
 
@@ -47,6 +56,7 @@ impl TestResultKind {
             "skipped" => Ok(Self::Skipped),
             "flaky" => Ok(Self::Flaky),
             "slow" => Ok(Self::Slow),
+            "quarantined" => Ok(Self::Quarantined),
             _ => Err("invalid TestResultKind"),
         }
     }
@@ -57,6 +67,7 @@ impl From<IndividualTestResultKind> for TestResultKind {
         match val {
             IndividualTestResultKind::Passed => Self::Passed,
             IndividualTestResultKind::Failed => Self::Failed,
+            IndividualTestResultKind::Quarantined => Self::Quarantined,
             IndividualTestResultKind::Skipped { .. } => Self::Skipped,
         }
     }

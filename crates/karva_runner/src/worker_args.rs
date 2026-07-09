@@ -114,6 +114,10 @@ fn inner_cli_args(settings: &ProjectSettings, args: &SubTestCommand) -> Vec<Stri
         cli_args.push(retry.to_string());
     }
 
+    if args.quarantine {
+        cli_args.push("--quarantine".to_string());
+    }
+
     if let Some(threshold) = settings.test().slow_timeout {
         cli_args.push("--slow-timeout".to_string());
         cli_args.push(format!("{}", threshold.as_secs_f64()));

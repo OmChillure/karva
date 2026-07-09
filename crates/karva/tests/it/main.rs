@@ -12,6 +12,7 @@ mod extensions;
 mod filterset;
 mod last_failed;
 mod partition;
+mod quarantine;
 mod run_ignored;
 mod run_timeout;
 mod show_config;

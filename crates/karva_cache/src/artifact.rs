@@ -38,6 +38,14 @@ pub enum CacheFile {
     /// or empty/absent when the worker is between tests. Used by the
     /// orchestrator to render per-test `SIGINT` lines on Ctrl+C.
     CurrentTest,
+    /// Cache-root JSON: quarantined tests and their detection reasons.
+    Quarantine,
+    /// Cache-root JSON: per-test pass/fail outcome history across runs.
+    TestHistory,
+    /// Per-worker JSON: list of final test outcomes for history updates.
+    Outcomes,
+    /// Per-worker JSON: list of quarantined failures observed this run.
+    QuarantinedFailures,
 }
 
 impl CacheFile {
@@ -53,6 +61,10 @@ impl CacheFile {
             Self::FailFastSignal => "fail-fast",
             Self::LastFailed => "last-failed.json",
             Self::CurrentTest => "current_test.json",
+            Self::Quarantine => "quarantine.json",
+            Self::TestHistory => "test-history.json",
+            Self::Outcomes => "outcomes.json",
+            Self::QuarantinedFailures => "quarantined_failures.json",
         }
     }
 

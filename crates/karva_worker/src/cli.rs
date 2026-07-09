@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::process::{ExitCode, Termination};
 
@@ -5,7 +6,7 @@ use anyhow::Context as _;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use fs_err as fs;
-use karva_cache::{RunCache, RunHash};
+use karva_cache::{RunCache, RunHash, read_quarantine};
 use karva_cli::{SubTestCommand, Verbosity};
 use karva_diagnostic::{DummyReporter, Reporter, TestCaseReporter};
 use karva_logging::{Printer, StatusLevel, set_colored_override, setup_tracing};
@@ -137,6 +138,7 @@ fn run(f: impl FnOnce(Vec<OsString>) -> Vec<OsString>) -> anyhow::Result<ExitSta
         .unwrap_or_default();
 
     let coverage = worker_coverage_config(&args.sub_command)?;
+    let quarantine_enabled = args.sub_command.quarantine;
 
     let mut settings = args.sub_command.into_options().to_settings();
     settings.set_filter(filter);
@@ -163,6 +165,14 @@ fn run(f: impl FnOnce(Vec<OsString>) -> Vec<OsString>) -> anyhow::Result<ExitSta
         )
     };
 
+    let quarantine_set = if quarantine_enabled {
+        read_quarantine(&args.cache_dir)
+            .map(|list| list.names())
+            .unwrap_or_default()
+    } else {
+        HashSet::new()
+    };
+
     let result = karva_test_semantic::run_tests(
         &cwd,
         &settings,
@@ -170,6 +180,7 @@ fn run(f: impl FnOnce(Vec<OsString>) -> Vec<OsString>) -> anyhow::Result<ExitSta
         reporter.as_ref(),
         test_paths,
         coverage.as_ref(),
+        quarantine_set,
     );
 
     let diagnostic_format = settings.terminal().output_format.into();

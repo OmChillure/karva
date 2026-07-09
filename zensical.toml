@@ -28,6 +28,7 @@ nav = [
         { "Failure Handling" = [
             { "Failing Fast" = "usage/failure-handling/fail-fast.md"},
             { "Retries" = "usage/failure-handling/retries.md"},
+            { "Quarantine" = "usage/failure-handling/quarantine.md"},
             { "Slow Tests" = "usage/failure-handling/slow-tests.md"},
         ]},
         { "Writing Tests" = [

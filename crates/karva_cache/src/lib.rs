@@ -2,13 +2,20 @@ pub(crate) mod artifact;
 pub(crate) mod cache;
 pub(crate) mod diagnostics;
 pub(crate) mod hash;
+pub(crate) mod quarantine;
 
 pub use cache::{
     AggregatedResults, CurrentTest, PruneResult, RunCache, clean_cache, prune_cache,
     read_last_failed, read_recent_durations, write_last_failed,
 };
 pub use hash::RunHash;
-pub use karva_diagnostic::{DisplayFlakyTests, FlakyTest};
+pub use karva_diagnostic::{
+    DisplayFlakyTests, DisplayQuarantinedFailures, FlakyTest, QuarantineReason, QuarantinedTest,
+};
+pub use quarantine::{
+    QuarantineList, TestHistory, read_quarantine, read_test_history, update_history_and_quarantine,
+    write_quarantine, write_test_history,
+};
 
 /// The directory name used for the cache, relative to the project root.
 pub const CACHE_DIR: &str = ".karva_cache";
